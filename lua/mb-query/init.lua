@@ -28,4 +28,17 @@ function M.setup(opts)
 	end
 end
 
+local function is_buf_sql()
+	local file_extension = vim.bo.filetype
+	return file_extension == "sql"
+end
+
+local function get_buf_sql()
+	if not is_buf_sql() then
+		vim.notify("Not a SQL file.", vim.log.levels.ERROR)
+		return nil
+	end
+	return table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
+end
+
 return M
