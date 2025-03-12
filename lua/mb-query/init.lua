@@ -66,14 +66,68 @@ local function make_curl_cmd(database, query, url, token)
 	}
 end
 
----@class MetabaseQueryColumn
---- @field display_name string
+---@class MetabaseColumnData
+--- @field col_name string
+--- @field data string[]
+local MetabaseColumnData = {}
 
---- @class MetabaseQueryResult
---- @field rows any[][]
---- @field cols MetabaseQueryColumn[]
+--- @param col_name string
+--- @return MetabaseColumnData
+function MetabaseColumnData:new(col_name)
+	local res = { col_name = col_name, data = {} }
+	setmetatable(res, self)
+	self.__index = self
+	return res
+end
 
---- @param query_result MetabaseQueryResult
+--- @return integer
+function MetabaseColumnData:get_display_width()
+	local width = #self.col_name
+	for _, value in ipairs(self.data) do
+		width = math.max(width, #value)
+	end
+	return width
+end
+
+--- @param raw_data string?
+--- @return MetabaseColumnData[]
+local function cast_as_metabase_column_data(raw_data)
+	if raw_data == nil then
+		error("expected a string, received nil", 2)
+	end
+	local data = vim.json.decode(raw_data).data
+	local cols = data.cols
+	local rows = data.rows
+	if cols == nil or rows == nil then
+		error("missing fields data.rows and data.cols in the input data", 2)
+	end
+
+	local res = {}
+	for col_idx, col_data in ipairs(cols) do
+		local col_name = col_data.display_name
+		if type(col_name) ~= "string" then
+			error(
+				string.format(
+					"wrong type for field data.cols.%d.display_name, expected 'string', received '%s'",
+					col_idx,
+					type(col_name)
+				),
+				2
+			)
+		end
+		table.insert(res, MetabaseColumnData:new(col_name))
+	end
+
+	for _, row in ipairs(rows) do
+		for col_idx, cell in ipairs(row) do
+			table.insert(res[col_idx].data, tostring(cell))
+		end
+	end
+
+	return res
+end
+
+--- @param query_result MetabaseColumnData[]
 --- @param max_nb_rows integer
 --- @return nil
 local function display_metabase_query_result(query_result, max_nb_rows)
@@ -91,6 +145,8 @@ local function query_metabase(database, query, url, token, max_nb_rows)
 
 	vim.system(curl_cmd, {}, function(out)
 		display_metabase_query_result(vim.json.decode(out.stdout).data, max_nb_rows)
+		local data = cast_as_metabase_column_data(out.stdout)
+		display_metabase_query_result(data, max_nb_rows)
 	end)
 end
 
