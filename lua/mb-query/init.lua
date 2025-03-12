@@ -36,11 +36,10 @@ local function is_buf_sql()
 	return file_extension == "sql"
 end
 
---- @return string?
+--- @return string
 local function get_buf_sql()
 	if not is_buf_sql() then
-		vim.notify("Not a SQL file.", vim.log.levels.ERROR)
-		return nil
+		error("expected SQL file buffer")
 	end
 	return table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
 end
@@ -144,19 +143,25 @@ local function query_metabase(database, query, url, token, max_nb_rows)
 	local curl_cmd = make_curl_cmd(database, query, url, token)
 
 	vim.system(curl_cmd, {}, function(out)
-		display_metabase_query_result(vim.json.decode(out.stdout).data, max_nb_rows)
-		local data = cast_as_metabase_column_data(out.stdout)
-		display_metabase_query_result(data, max_nb_rows)
+		local success, err = pcall(function()
+			local data = cast_as_metabase_column_data(out.stdout)
+			display_metabase_query_result(data, max_nb_rows)
+		end)
+		if not success then
+			vim.notify(tostring(err), vim.log.levels.ERROR)
+		end
 	end)
 end
 
 --- @return nil
 function M.run_buf_query()
-	local query = get_buf_sql()
-	if query == nil then
-		return nil
+	local success, err = pcall(function()
+		local query = get_buf_sql()
+		query_metabase(M.config.database, query, M.config.metabase_url, M.config.metabase_token, M.config.max_nb_rows)
+	end)
+	if not success then
+		vim.notify(tostring(err), vim.log.levels.ERROR)
 	end
-	query_metabase(M.config.database, query, M.config.metabase_url, M.config.metabase_token, M.config.max_nb_rows)
 end
 
 return M
