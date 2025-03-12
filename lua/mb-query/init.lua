@@ -41,4 +41,20 @@ local function get_buf_sql()
 	return table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
 end
 
+local function make_curl_cmd(args)
+	local payload = vim.json.encode({ database = args.database, native = { query = args.query }, type = "native" })
+	return {
+		"curl",
+		"-X",
+		"POST",
+		"-H",
+		"Content-Type: application/json",
+		"-H",
+		string.format("X-API-KEY: %s", args.token),
+		"-d",
+		payload,
+		string.format("%sapi/dataset", args.url),
+	}
+end
+
 return M
