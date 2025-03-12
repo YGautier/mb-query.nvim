@@ -1,5 +1,6 @@
 local M = {}
 
+--- @return string?
 local function get_env(var)
 	return os.getenv(var)
 end
@@ -28,11 +29,13 @@ function M.setup(opts)
 	end
 end
 
+--- @return boolean
 local function is_buf_sql()
 	local file_extension = vim.bo.filetype
 	return file_extension == "sql"
 end
 
+--- @return string?
 local function get_buf_sql()
 	if not is_buf_sql() then
 		vim.notify("Not a SQL file.", vim.log.levels.ERROR)
@@ -41,8 +44,13 @@ local function get_buf_sql()
 	return table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
 end
 
-local function make_curl_cmd(args)
-	local payload = vim.json.encode({ database = args.database, native = { query = args.query }, type = "native" })
+--- @param database integer
+--- @param query string
+--- @param url string
+--- @param token string
+--- @return string[]
+local function make_curl_cmd(database, query, url, token)
+	local payload = vim.json.encode({ database = database, native = { query = query }, type = "native" })
 	return {
 		"curl",
 		"-X",
@@ -50,10 +58,10 @@ local function make_curl_cmd(args)
 		"-H",
 		"Content-Type: application/json",
 		"-H",
-		string.format("X-API-KEY: %s", args.token),
+		string.format("X-API-KEY: %s", token),
 		"-d",
 		payload,
-		string.format("%sapi/dataset", args.url),
+		string.format("%sapi/dataset", url),
 	}
 end
 
