@@ -9,7 +9,6 @@ M.config = {
 	metabase_url = get_env("METABASE__URL"),
 	metabase_token = get_env("METABASE__TOKEN"),
 	database = 2,
-	max_nb_rows = 30,
 }
 
 function M.setup(opts)
@@ -65,31 +64,9 @@ local function make_curl_cmd(database, query, url, token)
 	}
 end
 
----@class MetabaseColumnData
---- @field col_name string
---- @field data string[]
-local MetabaseColumnData = {}
-
---- @param col_name string
---- @return MetabaseColumnData
-function MetabaseColumnData:new(col_name)
-	local res = { col_name = col_name, data = {} }
-	setmetatable(res, self)
-	self.__index = self
-	return res
-end
-
---- @return integer
-function MetabaseColumnData:get_display_width()
-	local width = #self.col_name
-	for _, value in ipairs(self.data) do
-		width = math.max(width, #value)
-	end
-	return width
-end
-
 --- @param raw_data string?
---- @return MetabaseColumnData[]
+--- @return integer[]
+--- @return string[][]
 local function cast_as_metabase_column_data(raw_data)
 	if raw_data == nil then
 		error("expected a string, received nil", 2)
@@ -101,7 +78,11 @@ local function cast_as_metabase_column_data(raw_data)
 		error("missing fields data.rows and data.cols in the input data", 2)
 	end
 
-	local res = {}
+	local widths = {}
+	local lines = {}
+
+	-- Iterate over columns data
+	local line = {}
 	for col_idx, col_data in ipairs(cols) do
 		local col_name = col_data.display_name
 		if type(col_name) ~= "string" then
@@ -114,42 +95,85 @@ local function cast_as_metabase_column_data(raw_data)
 				2
 			)
 		end
-		table.insert(res, MetabaseColumnData:new(col_name))
+		widths[col_idx] = #col_name
+		table.insert(line, col_name)
 	end
+	table.insert(lines, line)
 
+	-- Iterate over columns data
 	for _, row in ipairs(rows) do
+		line = {}
 		for col_idx, cell in ipairs(row) do
-			table.insert(res[col_idx].data, tostring(cell))
+			local cell_str = tostring(cell)
+			widths[col_idx] = math.max(widths[col_idx], #cell_str)
+			table.insert(line, cell_str)
 		end
+		table.insert(lines, line)
 	end
 
-	return res
+	return widths, lines
 end
 
---- @param query_result MetabaseColumnData[]
---- @param max_nb_rows integer
---- @return nil
-local function display_metabase_query_result(query_result, max_nb_rows)
+--- @param lines string[][]
+--- @param widths integer[]
+--- @return string[]
+local function make_markdown_table(lines, widths)
+	local total_width = 0
+	local nb_columns = 0
+	for _, width in ipairs(widths) do
+		total_width = total_width + width
+		nb_columns = nb_columns + 1
+	end
 
+	local md_table = {}
+	local col_sep = " | "
+
+	for row_idx, row in ipairs(lines) do
+		local line = {}
+		for col_idx, cell in ipairs(row) do
+			table.insert(line, cell .. string.rep(" ", widths[col_idx] - #cell))
+		end
+		table.insert(md_table, table.concat(line, col_sep))
+		if row_idx == 1 then
+			-- First line: header
+			table.insert(md_table, string.rep("-", total_width + #col_sep * (nb_columns - 1)))
+		end
+	end
+	return md_table
+end
+
+--- @param lines string[][]
+--- @param widths integer[]
+--- @return nil
+local function to_buffer(lines, widths)
+	local md_table = make_markdown_table(lines, widths)
+
+	local buf = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_set_option_value("readonly", true, { buf = buf })
+	vim.api.nvim_buf_set_lines(buf, 0, -1, false, md_table)
+
+	local win = vim.api.nvim_get_current_win()
+	vim.api.nvim_win_set_buf(win, buf)
 end
 
 --- @param database integer
 --- @param query string
 --- @param url string
 --- @param token string
---- @param max_nb_rows integer
 --- @return nil
-local function query_metabase(database, query, url, token, max_nb_rows)
+local function query_metabase(database, query, url, token)
 	local curl_cmd = make_curl_cmd(database, query, url, token)
 
 	vim.system(curl_cmd, {}, function(out)
-		local success, err = pcall(function()
-			local data = cast_as_metabase_column_data(out.stdout)
-			display_metabase_query_result(data, max_nb_rows)
+		vim.schedule(function()
+			local success, err = pcall(function()
+				local widths, lines = cast_as_metabase_column_data(out.stdout)
+				to_buffer(lines, widths)
+			end)
+			if not success then
+				vim.notify(tostring(err), vim.log.levels.ERROR)
+			end
 		end)
-		if not success then
-			vim.notify(tostring(err), vim.log.levels.ERROR)
-		end
 	end)
 end
 
@@ -157,7 +181,7 @@ end
 function M.run_buf_query()
 	local success, err = pcall(function()
 		local query = get_buf_sql()
-		query_metabase(M.config.database, query, M.config.metabase_url, M.config.metabase_token, M.config.max_nb_rows)
+		query_metabase(M.config.database, query, M.config.metabase_url, M.config.metabase_token)
 	end)
 	if not success then
 		vim.notify(tostring(err), vim.log.levels.ERROR)
