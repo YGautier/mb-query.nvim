@@ -27,6 +27,7 @@ function M.setup(opts)
 			vim.log.levels.WARN
 		)
 	end
+	vim.api.nvim_create_user_command("RunBufferQuery", M.run_buf_query, {})
 end
 
 --- @return boolean
